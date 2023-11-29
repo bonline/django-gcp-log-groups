@@ -11,19 +11,23 @@ from .background_thread import BackgroundThreadTransport
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
-project = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+project = os.environ.get("GROUPED_LOGGING_GCP_PROJECT", os.environ.get("GOOGLE_CLOUD_PROJECT", ""))
 client = gcplogging.Client(project=project)
 if hasattr(settings, "GCP_LOG_USE_X_HTTP_CLOUD_CONTEXT"):
     USE_X_HTTP_CLOUD_CONTEXT = settings.GCP_LOG_USE_X_HTTP_CLOUD_CONTEXT
 else:
     USE_X_HTTP_CLOUD_CONTEXT = False
 
-parentLogName = 'request_log'
-childLogName = 'application'
-transport_parent = BackgroundThreadTransport(client, parentLogName)
-transport_child = BackgroundThreadTransport(client, childLogName)
+LOG_PREFIX = os.environ.get("GROUPED_LOGGING_LOG_PREFIX")
+PARENT_LOG_NAME = f"{LOG_PREFIX}_request_log" if LOG_PREFIX else "request_log"
+CHILD_LOG_NAME = f"{LOG_PREFIX}_application" if LOG_PREFIX else "application"
+transport_parent = BackgroundThreadTransport(client, PARENT_LOG_NAME)
+transport_child = BackgroundThreadTransport(client, CHILD_LOG_NAME)
 
-RESOURCE = gcplogging.Resource(type='gae_app', labels={})
+if os.env.get("K_SERVICE"):
+    RESOURCE = gcplogging.Resource(type='gae_app', labels={})
+else:
+    RESOURCE = gcplogging.Resource(type='cloud_run_revision', labels={})
 LABELS = None
 MLOGLEVELS = []
 
