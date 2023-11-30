@@ -11,23 +11,26 @@ from .background_thread import BackgroundThreadTransport
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
-project = os.environ.get("GROUPED_LOGGING_GCP_PROJECT", os.environ.get("GOOGLE_CLOUD_PROJECT", ""))
-client = gcplogging.Client(project=project)
-if hasattr(settings, "GCP_LOG_USE_X_HTTP_CLOUD_CONTEXT"):
-    USE_X_HTTP_CLOUD_CONTEXT = settings.GCP_LOG_USE_X_HTTP_CLOUD_CONTEXT
-else:
-    USE_X_HTTP_CLOUD_CONTEXT = False
+PROJECT = os.environ.get("GROUPED_LOGGING_GCP_PROJECT", os.environ.get("GOOGLE_CLOUD_PROJECT", ""))
+CLIENT = gcplogging.Client(project=PROJECT)
+
 
 LOG_PREFIX = os.environ.get("GROUPED_LOGGING_LOG_PREFIX")
-PARENT_LOG_NAME = f"{LOG_PREFIX}_request_log" if LOG_PREFIX else "request_log"
+if hasattr(settings, "GCP_LOG_USE_X_HTTP_CLOUD_CONTEXT"):
+    USE_X_HTTP_CLOUD_CONTEXT = settings.GCP_LOG_USE_X_HTTP_CLOUD_CONTEXT
+    TRANSPORT_PARENT = None
+else:
+    USE_X_HTTP_CLOUD_CONTEXT = False
+    PARENT_LOG_NAME = f"{LOG_PREFIX}_request_log" if LOG_PREFIX else "request_log"
+    TRANSPORT_PARENT = BackgroundThreadTransport(CLIENT, PARENT_LOG_NAME)
+
 CHILD_LOG_NAME = f"{LOG_PREFIX}_application" if LOG_PREFIX else "application"
-transport_parent = BackgroundThreadTransport(client, PARENT_LOG_NAME)
-transport_child = BackgroundThreadTransport(client, CHILD_LOG_NAME)
+TRANSPORT_CHILD = BackgroundThreadTransport(CLIENT, CHILD_LOG_NAME)
 
 if os.environ.get("K_SERVICE"):
-    RESOURCE = gcplogging.Resource(type='gae_app', labels={})
-else:
     RESOURCE = gcplogging.Resource(type='cloud_run_revision', labels={})
+else:
+    RESOURCE = gcplogging.Resource(type='gae_app', labels={})
 LABELS = None
 MLOGLEVELS = []
 
@@ -48,7 +51,7 @@ class GCPHandler(logging.Handler):
             return
         MLOGLEVELS.append(SEVERITY)
 
-        transport_child.send(
+        TRANSPORT_CHILD.send(
             msg,
             timestamp=datetime.datetime.utcnow(),
             severity=SEVERITY,
@@ -77,7 +80,7 @@ class GCPLoggingMiddleware:
         else:
             chars = "abcdefghijklmnopqrstuvwxyz1234567890"
             trace = "".join([random.choice(chars) for x in range(0, 32)])
-        trace = f"projects/{project}/traces/{trace}"
+        trace = f"projects/{PROJECT}/traces/{trace}"
         start_time = time.time()
 
         # Add logging handler for this request
@@ -98,7 +101,7 @@ class GCPLoggingMiddleware:
         # blob/master/google/logging/type/http_request.proto
         REQUEST = {
             'requestMethod': request.method,
-            'requestUrl': request.path,
+            'requestUrl': request.get_full_path(),
             'requestSize': request.META.get("CONTENT_LENGTH") or 0,
             'remoteIp': request.META["REMOTE_ADDR"],
             'status': response.status_code,
@@ -124,13 +127,15 @@ class GCPLoggingMiddleware:
             severity = min(MLOGLEVELS)
 
         del MLOGLEVELS[:]
-        transport_parent.send(
-            None,
-            timestamp=datetime.datetime.utcnow(),
-            severity=severity,
-            resource=RESOURCE,
-            labels=LABELS,
-            trace=trace,
-            span_id=span,
-            http_request=REQUEST,
-        )
+
+        if not USE_X_HTTP_CLOUD_CONTEXT:
+            TRANSPORT_PARENT.send(
+                None,
+                timestamp=datetime.datetime.utcnow(),
+                severity=severity,
+                resource=RESOURCE,
+                labels=LABELS,
+                trace=trace,
+                span_id=span,
+                http_request=REQUEST,
+            )
