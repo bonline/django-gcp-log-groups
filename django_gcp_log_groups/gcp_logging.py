@@ -24,7 +24,7 @@ CHILD_LOG_NAME = f"{LOG_PREFIX}_application" if LOG_PREFIX else "application"
 transport_parent = BackgroundThreadTransport(client, PARENT_LOG_NAME)
 transport_child = BackgroundThreadTransport(client, CHILD_LOG_NAME)
 
-if os.env.get("K_SERVICE"):
+if os.environ.get("K_SERVICE"):
     RESOURCE = gcplogging.Resource(type='gae_app', labels={})
 else:
     RESOURCE = gcplogging.Resource(type='cloud_run_revision', labels={})
