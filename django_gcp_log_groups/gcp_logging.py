@@ -16,11 +16,13 @@ CLIENT = gcplogging.Client(project=PROJECT)
 
 
 LOG_PREFIX = os.environ.get("GROUPED_LOGGING_LOG_PREFIX")
+TRANSPORT_PARENT = None
 if hasattr(settings, "GCP_LOG_USE_X_HTTP_CLOUD_CONTEXT"):
-    USE_X_HTTP_CLOUD_CONTEXT = settings.GCP_LOG_USE_X_HTTP_CLOUD_CONTEXT
-    TRANSPORT_PARENT = None
+    USE_X_HTTP_CLOUD_CONTEXT = settings.GCP_LOG_USE_X_HTTP_CLOUD_CONTEXT or False
 else:
     USE_X_HTTP_CLOUD_CONTEXT = False
+
+if not USE_X_HTTP_CLOUD_CONTEXT:
     PARENT_LOG_NAME = f"{LOG_PREFIX}_request_log" if LOG_PREFIX else "request_log"
     TRANSPORT_PARENT = BackgroundThreadTransport(CLIENT, PARENT_LOG_NAME)
 
@@ -28,7 +30,14 @@ CHILD_LOG_NAME = f"{LOG_PREFIX}_application" if LOG_PREFIX else "application"
 TRANSPORT_CHILD = BackgroundThreadTransport(CLIENT, CHILD_LOG_NAME)
 
 if os.environ.get("K_SERVICE"):
-    RESOURCE = gcplogging.Resource(type='cloud_run_revision', labels={})
+    RESOURCE = gcplogging.Resource(
+        type='cloud_run_revision',
+        labels={
+            "service_name": os.environ.get("K_SERVICE"),
+            "revision_name": os.environ.get("K_REVISION"),
+            "configuration_name": os.environ.get("K_CONFIGURATION"),
+        }
+    )
 else:
     RESOURCE = gcplogging.Resource(type='gae_app', labels={})
 LABELS = None
