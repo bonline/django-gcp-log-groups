@@ -15,6 +15,12 @@ PROJECT = os.environ.get("GROUPED_LOGGING_GCP_PROJECT", os.environ.get("GOOGLE_C
 CLIENT = gcplogging.Client(project=PROJECT)
 
 
+REMOTE_IP_HEADER = os.environ.get("GROUPED_LOGGING_REMOTE_IP_HEADER")
+if REMOTE_IP_HEADER:
+    REMOTE_IP_HEADER = 'HTTP_' + REMOTE_IP_HEADER.replace('-', '_').upper()
+else:
+    REMOTE_IP_HEADER = "REMOTE_ADDR"
+
 LOG_PREFIX = os.environ.get("GROUPED_LOGGING_LOG_PREFIX")
 TRANSPORT_PARENT = None
 if hasattr(settings, "GCP_LOG_USE_X_HTTP_CLOUD_CONTEXT"):
@@ -112,7 +118,7 @@ class GCPLoggingMiddleware:
             'requestMethod': request.method,
             'requestUrl': request.get_full_path(),
             'requestSize': request.META.get("CONTENT_LENGTH") or 0,
-            'remoteIp': request.META["REMOTE_ADDR"],
+            'remoteIp': request.META.get(REMOTE_IP_HEADER, 'unknown'),
             'status': response.status_code,
             'responseSize': response.get("Content-Length") or 0,
             'latency': "%.5fs" % (time.time() - start_time),
