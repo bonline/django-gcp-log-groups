@@ -11,17 +11,28 @@ from .background_thread import BackgroundThreadTransport
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
+
 PROJECT = os.environ.get("GROUPED_LOGGING_GCP_PROJECT", os.environ.get("GOOGLE_CLOUD_PROJECT", ""))
+REMOTE_IP_HEADER = os.environ.get("GROUPED_LOGGING_REMOTE_IP_HEADER")
+LOG_PREFIX = os.environ.get("GROUPED_LOGGING_LOG_PREFIX")
+LOG_LABEL_HEADERS = os.environ.get("GROUPED_LOGGING_LOG_LABEL_HEADERS")
+
+
+def format_header(header):
+    """ Format headers to match Django """
+    return 'HTTP_' + header.replace('-', '_').upper()
+
+
+if LOG_LABEL_HEADERS:
+    LOG_LABEL_HEADERS = [format_header(x) for x in LOG_LABEL_HEADERS]
+
 CLIENT = gcplogging.Client(project=PROJECT)
 
-
-REMOTE_IP_HEADER = os.environ.get("GROUPED_LOGGING_REMOTE_IP_HEADER")
 if REMOTE_IP_HEADER:
-    REMOTE_IP_HEADER = 'HTTP_' + REMOTE_IP_HEADER.replace('-', '_').upper()
+    REMOTE_IP_HEADER = format_header(REMOTE_IP_HEADER)
 else:
     REMOTE_IP_HEADER = "REMOTE_ADDR"
 
-LOG_PREFIX = os.environ.get("GROUPED_LOGGING_LOG_PREFIX")
 TRANSPORT_PARENT = None
 if hasattr(settings, "GCP_LOG_USE_X_HTTP_CLOUD_CONTEXT"):
     USE_X_HTTP_CLOUD_CONTEXT = settings.GCP_LOG_USE_X_HTTP_CLOUD_CONTEXT or False
@@ -46,7 +57,7 @@ if os.environ.get("K_SERVICE"):
     )
 else:
     RESOURCE = gcplogging.Resource(type='gae_app', labels={})
-LABELS = None
+
 MLOGLEVELS = []
 
 
@@ -71,7 +82,7 @@ class GCPHandler(logging.Handler):
             timestamp=datetime.datetime.utcnow(),
             severity=SEVERITY,
             resource=RESOURCE,
-            labels=LABELS,
+            labels=None,
             trace=self.trace,
             span_id=self.span)
 
@@ -143,13 +154,19 @@ class GCPLoggingMiddleware:
 
         del MLOGLEVELS[:]
 
+        labels = {}
+        if LOG_LABEL_HEADERS:
+            for header in LOG_LABEL_HEADERS.split(","):
+                if request.META.get(header):
+                    labels[header] = request.META[header]
+
         if not USE_X_HTTP_CLOUD_CONTEXT:
             TRANSPORT_PARENT.send(
                 None,
                 timestamp=datetime.datetime.utcnow(),
                 severity=severity,
                 resource=RESOURCE,
-                labels=LABELS,
+                labels=labels,
                 trace=trace,
                 span_id=span,
                 http_request=REQUEST,
